@@ -1,5 +1,7 @@
 # Jenkins docker container with docker and kubectl
 
+This project is a Fork from [Cirolini](https://github.com/cirolini/jenkins-docker-kubectl)
+
 This is a sample to use Jenkins in a Kubernetes CI/CD workflow to control your pipelines. Here you have a Docker container for Jenkins that have installed docker to build docker containers and kubectl to control your Kubernetes enviroment.
 
 With this Jenkins you can build docker containers for your applications and put them in your Kubernetes enviroment.
@@ -13,7 +15,7 @@ To develop this project you need Docker and a minimum kubernetes enviroment like
 To get a local version you need follow the steps:
 
 ```
-$ git github.com/cirolini/jenkins-docker-kubectl
+$ git github.com/saulobr88/jenkins-docker-kubectl
 $ docker build -t jenkins-cicd .
 ```
 
@@ -47,7 +49,7 @@ Install the suggested plugins e restart.
 ### How Run in a Kubernetes cluster
 
 ```
-$ kubectl apply -f https://raw.githubusercontent.com/cirolini/jenkins-docker-kubectl/master/k8s_jenkins.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/saulobr88/jenkins-docker-kubectl/master/k8s_jenkins.yaml
 ```
 
 This will create a Persistent Volume, a Service and Deployment to run Jenkins. And will apply the rbac role to grant Jenkins permissions for cluster admin.
@@ -55,7 +57,7 @@ This will create a Persistent Volume, a Service and Deployment to run Jenkins. A
 I recommend that you install a registry to, for this follow this command:
 
 ```
-$ kubectl apply -f https://raw.githubusercontent.com/cirolini/jenkins-docker-kubectl/master/k8s_registry.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/saulobr88/jenkins-docker-kubectl/master/k8s_registry.yaml
 ```
 
 Now you have a Registry, this is a repository for storing and distributing Docker images.
