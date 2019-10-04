@@ -50,7 +50,6 @@ matrix-auth
 matrix-project
 momentjs
 pam-auth
-pipeline
 pipeline-build-step
 pipeline-github-lib
 pipeline-graph-analysis

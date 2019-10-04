@@ -68,7 +68,7 @@ spec:
         tier: jenkins
     spec:
       containers:
-      - image: cirolini/jenkins-docker-kubectl
+      - image: saulobr88/jenkins-docker-kubectl
         name: jenkins
         securityContext:
           privileged: true
