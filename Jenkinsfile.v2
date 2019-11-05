@@ -1,0 +1,192 @@
+// ref.: https://medium.com/@cirolini/entrega-continua-com-kubernetes-e-jenkins-84bd9834a749
+// ref.: https://jenkins.io/doc/book/pipeline/docker/
+// ref.: https://go.cloudbees.com/docs/plugins/docker-workflow/
+// ref.: https://www.edureka.co/community/51498/build-a-container-in-jenkins-via-docker-pipeline-plugin
+// ref.: https://github.com/arun-gupta/docker-jenkins-pipeline/blob/4cc009b7c8bc4ca85f8555cdaba620a1414c17a6/Jenkinsfile#L16-L23
+node {
+
+    def tag
+    def label
+    def labelTag
+    def appName
+    def containerName
+    def registryHost
+    def imageName
+    def customImage
+    def deploymentName
+    def appDeployName = 'hello' // Precisa informar o nome do app para o processo de deploy
+    def deployStr
+
+    // Configuramos os estágios
+    stage ("Checkout SCM") {
+        checkout scm
+        // Pega o commit id para ser usado de tag (versionamento) na imagem
+        sh "git rev-parse --short HEAD > commit-id"
+        tag = readFile('commit-id').replace("\n", "").replace("\r", "")
+        if (env.BRANCH_NAME == 'master') {
+            label = 'production'
+            deployStr = 'Deploy Staging (b:master)'
+        } else if (env.BRANCH_NAME == 'develop') {
+            label = 'staging'
+            deployStr = 'Deploy Staging (b:develop)'
+        } else {
+            label = ''
+        }
+        // atualiza o labelTag e deploymentName
+        if (label!='') {
+            labelTag = label + '-' + tag
+            deploymentName = appDeployName+'-'+label
+        } else {
+            labelTag = tag
+            deploymentName = appDeployName
+        }
+        
+        // configura o nome da aplicação, o endereço do repositório e o nome da imagem com a versão
+        appName = "docker-php-helloworld"
+        containerName = "${appName}_${labelTag}"
+        registryHost = "204690257288.dkr.ecr.us-east-2.amazonaws.com/"
+        imageName = "${registryHost}${appName}:${labelTag}"
+    }
+
+    // Configuramos os estágios
+    stage ("Clear Before") {
+        sh "docker system prune -f"
+    }
+    
+    stage ("Build Custom Image") {
+        customImage = docker.build("${imageName}")
+    }
+    
+    stage ("Test Custom Image (Inside)") {
+        sh 'docker images'
+        sh 'docker ps -a'
+        try {
+            customImage.inside("--name ${containerName} --rm"){
+                sh 'php --version'
+                sh 'echo "Check Apache2"'
+                sh(returnStdout: true, returnStatus: true, script: '''#!/bin/bash
+                    if [ $(expr $(ps aux | grep apache2 | wc -l) - 1) > 0 ];then
+                        echo "Apache2 Rodando"
+                    else
+                        echo "Apache fail!!!"
+                    fi
+                '''.stripIndent())
+            }
+        }
+        catch (error) {
+            /* invocou mesmo não hanveod erro */
+            //forceContainerRemove(containerName)
+            
+            //currentBuild.result = "FAILURE"
+            //println("catch exeption. currentBuild.result: ${currentBuild.result}")
+        }
+        finally {
+            
+        }
+    }
+        /** 
+         * exempl de uso do docker.image
+         */
+        /*
+        docker.image("${imageName}").withRun('-p 80:80') { c ->
+            // Wait until service is up
+            sh 'while ! ping -h0.0.0.0 --silent; do sleep 1; done'
+            // Run some tests which require MySQL
+            sh 'php --version'
+            sh 'curl -s -o /dev/null -w '%{http_code}' localhost; echo'
+        }
+        */
+
+    stage ("Test Custom Image (Outside)") {
+        sh 'docker images'
+        sh 'docker ps -a'
+        try {
+            customImage.withRun("-p 80:80 --name ${containerName} --rm") { c ->
+                // Wait until container is up
+                sh 'echo "Wait Container to be up"'
+                sh(returnStdout: true, returnStatus: true, script: """#!/bin/bash
+                    while [ docker inspect -f '{{.State.Running}}' ${c.id} == "false" ];do
+                        sleep 1
+                    done
+                """.stripIndent())
+                //sh "while ! ${imageName} ping -h0.0.0.0 --silent; do sleep 1; done"
+                // Run some tests which require MySQL
+                //sh 'curl -s -o /dev/null -w '%{http_code}' localhost; echo'
+                echo 'CURL Test docker exec'
+                sh "docker exec ${c.id} curl -s -o /dev/null -w '%{http_code}' localhost; echo"
+                echo 'CURL Test droplet shell'
+                sh "curl -s -o /dev/null -w '%{http_code}' localhost; echo"
+            }
+        }
+        catch (error) {
+            /* invocou mesmo não hanveod erro */
+            //forceContainerRemove(containerName)
+            
+            //currentBuild.result = "FAILURE"
+            //println("catch exeption. currentBuild.result: ${currentBuild.result}")
+        }
+        finally {
+            
+        }
+        
+    }
+    
+    if (env.BRANCH_NAME == 'master' || env.BRANCH_NAME == 'develop') {
+        stage ("Push") {
+            echo "Se for o branch master ou develop e tudo ocorreu bem, fará o push da imagem no registry"            
+            //o usuário jenkins já está logado no registry privado
+            //Host: 204690257288.dkr.ecr.us-east-2.amazonaws.com/
+            sh 'aws ecr get-login --no-include-email --region us-east-2 > aws-ecr-login.sh'
+            sh 'sh aws-ecr-login.sh'
+            customImage.push()
+        }
+
+        stage (deployStr) {
+            echo "Apos fazer o push no registry, pode fazer o deploy em ${label}"
+            
+            // Ainda não é para usar Kubernetes
+            echo "Pega o token para a comunicação com o Kubernetes"
+            sh "cat /var/lib/jenkins/.kube/token > k8s-token"
+            sh "cat /var/lib/jenkins/.kube/k8s-ooppah-1-kubeconfig.yaml > k8s-config"
+            token = readFile('k8s-token')
+            sh "kubectl --kubeconfig=k8s-config get nodes -o wide --token=${token}"
+            sh "kubectl --kubeconfig=k8s-config set image deployment/${deploymentName} ${deploymentName}=${imageName} --record --token=${token}"
+        }
+    }
+
+    /*
+    // Fazer o deployment no ambiente de Staging
+    if (env.BRANCH_NAME == 'develop') {
+        stage ("Deploy Staging (b:develop)") {
+            // Refinar isso
+            echo "Apos fazer o push no registry, pode fazer o deploy em staging"
+
+            echo "Verifica a comunicação com o Kubernetes"
+            sh "cat /var/lib/jenkins/.kube/token > k8s-token"
+            sh "cat /var/lib/jenkins/.kube/k8s-ooppah-1-kubeconfig.yaml > k8s-config"
+            token = readFile('k8s-token')
+            sh "kubectl --kubeconfig=k8s-config get nodes -o wide --token=${token}"
+        }
+    }
+
+    // Fazer o deployment no ambiente de Producao
+    if (env.BRANCH_NAME == 'master') {
+        stage ("Deploy Production (b:master)") {
+            echo "Apos fazer o push no registry, pode fazer o deploy em production"
+            
+            // Ainda não é para usar Kubernetes
+            echo "Verifica a comunicação com o Kubernetes"
+            sh "cat /var/lib/jenkins/.kube/token > k8s-token"
+            sh "cat /var/lib/jenkins/.kube/k8s-ooppah-1-kubeconfig.yaml > k8s-config"
+            token = readFile('k8s-token')
+            // sh "kubectl --kubeconfig=k8s-config get nodes -o wide --token=${token}"
+            sh "kubectl set image deployment/hello-kubernetes  hello-kubernetes=registry.ooppah.com/docker-php-helloworld:986cfa0 --record"
+        }
+    }
+    */
+
+    // Configuramos os estágios
+    stage ("Clear After") {
+        sh "docker rmi ${imageName}"
+    }
+}
